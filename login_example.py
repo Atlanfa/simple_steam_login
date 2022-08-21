@@ -1,8 +1,9 @@
+import json
 from time import sleep
 
-import steam.webauth as wa
 from steam.client import SteamClient
 from steam.enums import EResult
+from steam.guard import generate_twofactor_code
 import logging
 
 
@@ -11,25 +12,29 @@ logging.basicConfig(filename='LOGS', filemode='a', format="%(asctime)s | %(messa
 LOG = logging.getLogger()
 
 client = SteamClient()
-client.proxy = "https://190.107.237.13:999"
 client.set_credential_location(".")  # where to store sentry files and other stuff
+
 
 @client.on("error")
 def handle_error(result):
     LOG.info("Logon result: %s", repr(result))
+
 
 @client.on("channel_secured")
 def send_login():
     if client.relogin_available:
         client.relogin()
 
+
 @client.on("connected")
 def handle_connected():
     LOG.info("Connected to %s", client.current_server_addr)
 
+
 @client.on("reconnect")
 def handle_reconnect(delay):
     LOG.info("Reconnect in %ds...", delay)
+
 
 @client.on("disconnected")
 def handle_disconnect():
@@ -38,6 +43,7 @@ def handle_disconnect():
     if client.relogin_available:
         LOG.info("Reconnecting...")
         client.reconnect(maxdelay=30)
+
 
 @client.on("logged_on")
 def handle_after_logon():
@@ -50,7 +56,20 @@ def handle_after_logon():
     LOG.info("Press ^C to exit")
 
 
-def login():
+
+
+
+def login(username, password, two_factor_code):
+    result = client.login(username=username, password=password, two_factor_code=two_factor_code)
+
+    # if result != EResult.OK:
+    #     LOG.info("Failed to login: %s" % repr(result))
+    #     raise SystemExit
+
+    return client, result
+
+
+def login_cli():
     result = client.cli_login()
 
     if result != EResult.OK:
@@ -60,26 +79,52 @@ def login():
     return client, result
 
 
-def logout(client):
+def logout():
     client.logout()
-    return client
+
+
+def get_user_by_login_from_json(username):
+    with open('users.json', 'r') as f:
+        json_users = json.load(f)
+        # print(json_users['users'])
+        for user in json_users['users']:
+            if user['login'] == username:
+                return user
+        return None
 
 
 def main():
     # main bit
     LOG.info("Persistent logon recipe")
     LOG.info("-" * 30)
-    client, result = login()
-    print(client.user.name)
-    print(client.logged_on)
-    print('sleep for 10 sec')
-    sleep(10)
-    print('end sleep')
-    print(client.logged_on)
-    logout(client)
-    LOG.info('Logout')
-    print('logout')
-    print(client.logged_on)
+    user_1 = get_user_by_login_from_json('somovvesta')
+    user_2 = get_user_by_login_from_json('cvetkovhloya')
+    for user in [user_1, user_2]:
+        print(user['login'])
+        print(user['password'])
+        try:
+            # get 2fa code from shared_secret using steam.guard.generate_twofactor_code
+            shared_secret_bytes = user['shared_secret'].encode('utf-8')
+            two_factor_code = generate_twofactor_code(shared_secret_bytes)
+            client, result = login(user['login'], user['password'], two_factor_code)
+            if result != EResult.OK:
+                LOG.info("Failed to login: %s" % repr(result))
+                logout()
+                raise Exception
+            print(client.user.name)
+            print(client.logged_on)
+            print('sleep for 10 sec')
+            sleep(10)
+            print('end sleep')
+            print(client.logged_on)
+            logout()
+            LOG.info('Logout')
+            print('logout')
+            print(client.logged_on)
+        except Exception as e:
+            print(e)
+            print('error')
+            # print('Invalid password')
 
 
 if __name__ == '__main__':
