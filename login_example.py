@@ -1,13 +1,16 @@
+
+
 import json
 from time import sleep
 
 from steam.client import SteamClient
 from steam.enums import EResult
-from steam.guard import generate_twofactor_code
 import logging
 
 
 # setup logging
+from steam.guard import SteamAuthenticator
+
 logging.basicConfig(filename='LOGS', filemode='a', format="%(asctime)s | %(message)s", level=logging.INFO)
 LOG = logging.getLogger()
 
@@ -47,6 +50,7 @@ def handle_disconnect():
 
 @client.on("logged_on")
 def handle_after_logon():
+
     LOG.info("-"*30)
     LOG.info("Logged on as: %s", client.user.name)
     LOG.info("Community profile: %s", client.steam_id.community_url)
@@ -104,9 +108,8 @@ def main():
         print(user['password'])
         try:
             # get 2fa code from shared_secret using steam.guard.generate_twofactor_code
-            shared_secret_bytes = user['shared_secret'].encode('utf-8')
-            two_factor_code = generate_twofactor_code(shared_secret_bytes)
-            client, result = login(user['login'], user['password'], two_factor_code)
+            code = SteamAuthenticator(secrets={'shared_secret': user['shared_secret']}).get_code()
+            client, result = login(user['login'], user['password'], code)
             if result != EResult.OK:
                 LOG.info("Failed to login: %s" % repr(result))
                 logout()
